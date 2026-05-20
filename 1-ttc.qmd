@@ -63,14 +63,14 @@ This installs, among others, `torchTextClassifiers` — the INSEE library that p
 
 **2. Understand what MLflow is and why we need it**
 
-[MLflow](https://mlflow.org/) is an open-source platform for tracking machine learning experiments. Every time a model is trained, MLflow records the hyperparameters used, the metrics obtained (loss, accuracy…), and the model artefacts (weights, tokenizer, configuration). This makes it easy to compare runs, reproduce results, and share trained models with others.
-
 In this notebook, we use MLflow in two ways:
 
 - During training (Exercise 4), metrics are logged to a remote MLflow server so you can monitor progress.
 - After training (Exercise 4, Question 3), we **download a pretrained model** that was already trained on the full dataset and stored in MLflow, so you do not have to wait hours for training to complete.
 
-**3. Set up your credentials**
+**2. Set up your MLflow credentials**
+
+[MLflow](https://mlflow.org/) is an open-source platform for tracking machine learning experiments. Every time a model is trained, MLflow records the hyperparameters used, the metrics obtained (loss, accuracy…), and the model artefacts (weights, tokenizer, configuration). This makes it easy to compare runs, reproduce results, and share trained models with others. This funathon project uses MLflow in multiple ways.
 
 Because the MLflow server is a remote, access-controlled service, you need to provide two pieces of information:
 
