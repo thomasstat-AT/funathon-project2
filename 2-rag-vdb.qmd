@@ -52,6 +52,13 @@ load_dotenv()
 ```
 
 
+::: {.callout-caution}
+
+If `load_dotenv()` doesn't work but every thing seems fine, don't forget to make sure that Python runs in the right working directory with `os.getcwd()`and `os.chdir("funathon-project2)`.
+
+:::
+
+
 ### Question 1
 
 
@@ -460,6 +467,7 @@ The returned `response` object follows the OpenAI schema — the embedding vecto
 
 - Wrap the call in a `try / except` block so a failed request doesn't silently corrupt your data.
 - `input` accepts either a single string or a list of strings — pick whichever fits your method best.
+- To avoid verbose output when creating embeddings, you can add a verbose option .
 :::
 
 ```{python}
@@ -552,6 +560,7 @@ class NaceDocument:
         self,
         client_llmlab,
         emb_model: str,
+        verbose = False,
     ) -> List[float]:
         try:
             response = client_llmlab.embeddings.create(
@@ -560,7 +569,8 @@ class NaceDocument:
             )
 
             self.vector = response.data[0].embedding
-            return self.vector
+            if verbose:
+                return self.vector
 
         except Exception as e:
             raise RuntimeError(f"Embedding failed for doc {self.code}: {str(e)}")
@@ -730,6 +740,7 @@ class NaceDocument:
         self,
         client_llmlab,
         emb_model: str,
+        verbose = False,
     ) -> List[float]:
         try:
             response = client_llmlab.embeddings.create(
@@ -738,7 +749,8 @@ class NaceDocument:
             )
 
             self.vector = response.data[0].embedding
-            return self.vector
+            if verbose:
+                return self.vector
 
         except Exception as e:
             raise RuntimeError(f"Embedding failed for doc {self.code}: {str(e)}")
