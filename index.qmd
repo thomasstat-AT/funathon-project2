@@ -141,11 +141,13 @@ Example (`scratch.py` at the root of the repo):
 
 import pandas as pd
 
-df = pd.read_csv("data/sample.csv")
+df = pd.read_parquet(
+    "https://minio.lab.sspcloud.fr/projet-formation/diffusion/funathon/2026/project2/generation_None_temp08.parquet"
+)
 df.head()
 
 # %%
-df["nace_code"].value_counts().head(10).plot(kind="bar")
+df["code"].value_counts().head(10).plot(kind="bar")
 ```
 
 A small "Run Cell" lens appears above each `# %%` marker. Click it to execute that block. This is convenient for iterating on small pieces of code or testing specific functions from the project.

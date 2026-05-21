@@ -14,7 +14,7 @@ execute:
 
 ## The problem: classifying free-text activity descriptions
 
-Given a short text description of a business activity — such as *"I sell croissants and pains au chocolat"* — the goal is to automatically assign the correct **NAF 2025 activity code** from hundreds of possible categories. This is a **supervised multiclass classification** problem.
+Given a short text description of a business activity — such as *"I sell croissants and pains au chocolat"* — the goal is to automatically assign the correct **NACE 2.1 activity code** from hundreds of possible categories. This is a **supervised multiclass classification** problem.
 
 ## Supervised learning or RAG?
 
@@ -29,9 +29,9 @@ In this notebook, we use the supervised approach: the model learns directly from
 
 ## Pipeline overview
 
-The diagram below shows the five steps of our pipeline. We start from a **labelled dataset** — text descriptions paired with their correct NAF code. We then **split** it into three subsets (train, validation, test) so we can train without peeking at the data we use to evaluate. Before feeding text to the model, a **tokenizer** converts each description into a sequence of numbers, because neural networks only understand numbers. The **classifier** then learns, from thousands of examples, which number sequences correspond to which NAF codes. Finally, we **evaluate** how accurate the model is on unseen examples and inspect which words drove each prediction.
-
-```mermaid
+```{mermaid}
+%%| eval: true
+%%| output: true
 flowchart LR
     A["Labelled data<br/>text + NAF code"] --> B["Split<br/>train / val / test"]
     B --> C["WordPiece Tokenizer<br/>text → token IDs"]
@@ -207,7 +207,13 @@ X_test  = test_df["label"].to_numpy()
 print(f"Train: {len(train_df)} | Val: {len(val_df)} | Test: {len(test_df)}")
 ```
 
-## Question 2 — Encode the target labels
+*Use `LabelEncoder` from `sklearn.preprocessing` (see [here](https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.LabelEncoder.html) for the documentation). Call `.fit()` on all codes, then `.transform()` on each split. Extract numpy arrays with `.to_numpy()`.*
+
+::: {.callout-note appearance="simple" collapse="true"}
+## Why do we use LabelEncoder ?
+We use `LabelEncoder` to map the categorical target `y` to integers `0, 1, …, n_classes - 1`, the format expected by scikit-learn classifiers. It should not be used on input features, however: for those, `OrdinalEncoder` or `OneHotEncoder` is preferred, because `LabelEncoder` is designed for a 1D target and does not handle unseen categories at inference time.
+
+:::
 
 The `code` column contains strings like `"47.11A"`. Neural networks do not understand strings and require integer targets (1, 2, 3...), so we need to map each unique NAF code to an integer index. Encode the `code` column of each split using `LabelEncoder` from `sklearn.preprocessing`, and keep the fitted encoder — you will need it later to convert integer predictions back to NAF code strings.
 
@@ -320,16 +326,16 @@ print("Vocabulary size:", tokenizer.vocab_size)
 
 A text classification model in `torchTextClassifiers` is built from three components:
 
-1. **TextEmbedder**: converts token IDs into dense vectors (*embeddings*) of size `embedding_dim`.
+1. [**TextEmbedder**](https://inseefrlab.github.io/torchTextClassifiers/architecture/overview.html#component-2-text-embedding-pipeline-tokenembedder-sentenceembedder): converts token IDs into dense vectors (*embeddings*) of size `embedding_dim`.
    A self-attention layer can be added to capture word order and context.
 
-2. **CategoricalVariableNet** *(optional)*: encodes additional categorical features and merges
+2. [**CategoricalVariableNet**](https://inseefrlab.github.io/torchTextClassifiers/architecture/overview.html#component-3-categorical-variable-handler) *(optional)*: encodes additional categorical features and merges
    them with the text representation. Not used in this dataset.
 
-3. **ClassificationHead**: projects the final representation onto `num_classes` dimensions.
+3. [**ClassificationHead**](https://inseefrlab.github.io/torchTextClassifiers/architecture/overview.html#component-4-classification-head): projects the final representation onto `num_classes` dimensions.
    The highest value determines the predicted class.
 
-These are configured through `ModelConfig` and assembled automatically by `torchTextClassifiers`.
+These are configured through `ModelConfig` and assembled automatically by `torchTextClassifiers`. You can see some `ModelConfig` examples [here](https://inseefrlab.github.io/torchTextClassifiers/architecture/overview.html#usage-examples) and for `torchTextClassifiers` [here](https://inseefrlab.github.io/torchTextClassifiers/api/wrapper.html)
 
 # Training
 
@@ -397,6 +403,8 @@ Define a `TrainingConfig` and train on a small subsample so it completes quickly
 
 *Create a `TrainingConfig(lr=..., batch_size=..., num_epochs=..., num_workers=...)` and call `ttc.train(X_train=..., y_train=..., X_val=..., y_val=..., training_config=..., verbose=True)`.*
 
+You can see the `TrainingConfig` documentation [here](https://inseefrlab.github.io/torchTextClassifiers/api/configs.html#trainingconfig)
+
 ::: {.callout-note appearance="simple" collapse="true"}
 ## Note
 We train on a **small subsample** (5% of the data, 1 epoch) just to verify the pipeline runs
@@ -445,6 +453,8 @@ ttc.train(
 ## Question 3 — Load the pretrained model from MLflow
 
 Load the **pretrained model** trained on the full dataset from MLflow.
+
+You can see the documentation on MLFlow Python API [here](https://mlflow.org/docs/latest/api_reference/python_api/index.html)
 
 *Use `mlflow.set_tracking_uri()` then `mlflow.artifacts.download_artifacts(f"runs:/{RUN_ID}/model_artifacts")`. Rebuild the model from `model_config.json` and restore weights with `load_state_dict()`.*
 

@@ -124,9 +124,9 @@ Temperature controls the degree of randomness in generation. For a closed-list c
 
 Before running the pipeline on the full dataset, test each component step by step.
 
-The following questions will follow the steps described below. 
+The following questions will follow the steps described below.
 
-![Steps for the Exercice 1](img/generation_workflow_exercice1.png) 
+![Steps for the Exercice 1](img/generation_workflow_exercice1.png)
 
 ::: {.callout-tip collapse="false" icon=false}
 ## `<i class="bi bi-book"></i>`{=html} Exercise 1: Test the pipeline on a single example
@@ -232,7 +232,7 @@ print(descriptions_retrieved[0])
 
 ---
 
-### Question 3 — Prompt construction
+### Prompt construction
 
 The quality of the prompt directly affects the LLM's output. A RAG prompt typically has two parts:
 
@@ -240,6 +240,18 @@ The quality of the prompt directly affects the LLM's output. A RAG prompt typica
 - The **user prompt**: contains request-specific information (label to code, candidates, output format instructions).
 
 Constraining the output to **JSON format** is a best practice: it simplifies automatic parsing and reduces format hallucinations.
+
+
+::: {.callout-note title="Using structured output with LLMs"}
+The vast majority of LLMs now support [*Structured Outputs*](https://developers.openai.com/api/docs/guides/structured-outputs#function-calling-vs-response-format), allowing you to enforce a strict JSON schema on the model's response. Three mechanisms exist, in increasing order of strictness:
+
+- **`response_format={"type": "json_object"}`**: the model is constrained to emit valid JSON, but the exact keys are guided by the prompt rather than a formal schema. Simple and widely supported.
+- **`response_format={"type": "json_schema", "json_schema": ...}`**: the model is constrained to match a precise JSON schema validated at decode time. Stronger guarantee, but requires an explicit schema definition.
+- **Pydantic + `..chat.completions.parse()`** (used here): the OpenAI SDK accepts a Pydantic model as `response_format` and deserialises the response directly into a typed Python object. No `json.loads` is needed, field types and value constraints are enforced by Pydantic at parse time, and IDEs provide full autocompletion on the result.
+:::
+
+
+
 
 ```{python}
 #| label: create-prompt
@@ -288,23 +300,31 @@ USER_PROMPT_TEMPLATE = """\
 
 ---
 
-### Question 4 — LLM inference
+### Question 3 — LLM inference
 
 Compile the prompt with the retrieved candidates and run inference. The steps are:
 
 1. Format `USER_PROMPT_TEMPLATE` by injecting `activity`, `descriptions_retrieved` and `codes_retrieved`.
-2. Call [client_llmlab.chat.completions.create](https://developers.openai.com/api/reference/python/resources/chat/subresources/completions/methods/create) with the system and user messages.
-3. Parse the response content with `json.loads`.
+2. Call `client_llmlab.beta.chat.completions.parse()` with `response_format=NaceClassificationResult`.
+3. Access the typed result via `response.choices[0].message.parsed` — no `json.loads` needed.
 
 ::: {.callout-tip}
-**Constraining the output to JSON.** The OpenAI-compatible API accepts a `response_format` parameter that forces the model to return valid JSON:
-
-```python
-response_format={"type": "json_object"}
-```
-
-This eliminates free-text preambles and makes parsing reliable. The expected keys (`nace_code`, `codable`, `confidence`) are described in the system prompt.
+**`beta.chat.completions.parse()` vs `.create()`.**  The `.parse()` method is a thin wrapper around `.create()` that accepts a Pydantic model as `response_format`. Under the hood it serialises the model's JSON schema and sends it to the API; on the way back it deserialises the response into the model. If the model returns a field that violates a constraint (e.g. `confidence` outside `[0, 1]`) Pydantic raises a `ValidationError` at parse time, making failures explicit rather than silent.
 :::
+
+We first need to create the output schema we want, we do this by defining a [pydantic](https://pydantic.dev/docs/validation/latest/get-started/) class :
+
+```{python}
+#| label: response-schema
+
+from pydantic import BaseModel, Field
+from typing import Optional
+
+class NaceClassificationResult(BaseModel):
+    nace_code: Optional[str] = Field(description="Chosen NACE code from the candidate list, or null")
+    codable: bool = Field(description="False if the description is too vague to code")
+    confidence: float = Field(ge=0.0, le=1.0, description="Confidence score between 0 and 1")
+```
 
 
 ```{python}
@@ -321,18 +341,18 @@ user_prompt = USER_PROMPT_TEMPLATE.format(
     proposed_nace_codes=", ".join(codes_retrieved)
 )
 
-response = client_llmlab.chat.completions.create(
+response = client_llmlab.chat.completions.parse(
     model=GEN_MODEL_NAME,
     messages=[
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": user_prompt}
     ],
     temperature=TEMPERATURE,
-    response_format={"type": "json_object"}
+    response_format=NaceClassificationResult,
 )
 
-llm_response = json.loads(response.choices[0].message.content)
-print(json.dumps(llm_response, indent=2))
+llm_response: NaceClassificationResult = response.choices[0].message.parsed
+print(json.dumps(llm_response.model_dump(), indent=2))
 ```
 
 :::
@@ -353,7 +373,6 @@ Next, let's use some synthetic data. We will:
 #| output: true
 
 import duckdb
-import pandas as pd
 
 con = duckdb.connect(database=":memory:")
 
@@ -390,6 +409,7 @@ Before looping, we encapsulate steps 1–4 into a reusable function.
 ```{python}
 #| label: pipeline-function
 
+
 def run_rag_pipeline(activity: str) -> dict:
     """
     Run the full RAG pipeline for a single activity label.
@@ -408,10 +428,7 @@ def run_rag_pipeline(activity: str) -> dict:
         - retrieved_codes (list): candidates returned by the retriever
     """
     # --- Step 1: Embedding ---
-    emb_response = client_llmlab.embeddings.create(
-        model=EMB_MODEL_NAME,
-        input=activity
-    )
+    emb_response = client_llmlab.embeddings.create(model=EMB_MODEL_NAME, input=activity)
     embedding = emb_response.data[0].embedding
 
     # --- Step 2: Retrieval ---
@@ -430,21 +447,21 @@ def run_rag_pipeline(activity: str) -> dict:
     user_prompt = USER_PROMPT_TEMPLATE.format(
         activity=activity,
         proposed_nace_descriptions="## " + "\n\n## ".join(descriptions_retrieved),
-        proposed_nace_codes=", ".join(codes_retrieved)
+        proposed_nace_codes=", ".join(codes_retrieved),
     )
 
     # --- Step 4: LLM inference ---
-    gen_response = client_llmlab.chat.completions.create(
+    gen_response = client_llmlab.chat.completions.parse(
         model=GEN_MODEL_NAME,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt}
+            {"role": "user", "content": user_prompt},
         ],
         temperature=TEMPERATURE,
-        response_format={"type": "json_object"}
+        response_format=NaceClassificationResult,
     )
 
-    result = json.loads(gen_response.choices[0].message.content)
+    result = gen_response.choices[0].message.parsed.model_dump()
     # Keep retrieved candidates for retriever evaluation
     result["retrieved_codes"] = codes_retrieved
 
@@ -469,6 +486,7 @@ The default sample size is `SAMPLE_SIZE = 100`, which keeps inference fast and a
 #| code-overflow: scroll
 
 from tqdm import tqdm
+import pandas as pd
 
 records = []
 
@@ -666,19 +684,25 @@ n_retriever_miss = (~results["retriever_hit"]).sum()
 n_llm_miss       = (results["retriever_hit"] & ~results["pipeline_correct"]).sum()
 n_correct        = results["pipeline_correct"].sum()
 
-print("=" * 52)
-print("      DASHBOARD — RAG PIPELINE NACE 2.1")
-print("=" * 52)
-print(f"  Activities processed        : {n_total:>6}")
-print(f"  Correctly coded             : {n_correct:>6}  ({pipeline_accuracy:.1%})")
-print()
-print(f"  Retriever@{RETRIEVER_LIMIT} accuracy        : {retriever_accuracy:>6.1%}")
-print(f"  LLM accuracy (conditional)  : {llm_accuracy:>6.1%}")
-print(f"  Pipeline accuracy           : {pipeline_accuracy:>6.1%}")
-print()
-print(f"  Retriever errors            : {n_retriever_miss:>6}  ({n_retriever_miss/n_total:.1%})")
-print(f"  LLM errors                  : {n_llm_miss:>6}  ({n_llm_miss/n_total:.1%})")
-print("=" * 52)
+print(
+    "\n".join(
+        [
+            "=" * 52,
+            "      DASHBOARD — RAG PIPELINE NACE 2.1",
+            "=" * 52,
+            f"  Activities processed        : {n_total:>6}",
+            f"  Correctly coded             : {n_correct:>6}  ({pipeline_accuracy:.1%})",
+            "",
+            f"  Retriever@{RETRIEVER_LIMIT} accuracy        : {retriever_accuracy:>6.1%}",
+            f"  LLM accuracy (conditional)  : {llm_accuracy:>6.1%}",
+            f"  Pipeline accuracy           : {pipeline_accuracy:>6.1%}",
+            "",
+            f"  Retriever errors            : {n_retriever_miss:>6}  ({n_retriever_miss / n_total:.1%})",
+            f"  LLM errors                  : {n_llm_miss:>6}  ({n_llm_miss / n_total:.1%})",
+            "=" * 52,
+        ]
+    )
+)
 ```
 
 ::: {.callout-note}
@@ -724,7 +748,7 @@ from plotnine import (
     scale_color_manual, scale_linetype_manual,
     labs, theme_minimal,
 )
-import pandas as pd
+
 
 # --- Left: confidence distribution by correctness ---
 results_plot = results.assign(
@@ -779,3 +803,197 @@ display(p2)
 ::: {.callout-note}
 **Precision / coverage trade-off:** raising the confidence threshold increases precision (the retained predictions are more likely to be correct) but reduces coverage (fewer labels are automatically coded, the rest requiring manual review). Choosing the right threshold depends on the operational constraints of your use case.
 :::
+
+
+::: {.callout-tip title="Using Polars"}
+
+You can try avoid using lists and use Polars package instead to do all of the previous steps.
+
+Here is an example for the retrieval step, to search for NACE candidates using Polars's usefull `.unnest()` method.
+
+``` python
+points_df = (
+    pl.DataFrame(points.model_dump())
+    .unnest()
+    .unnest()
+    .select(["id", "score", "code", "text"])
+)
+
+```
+
+You can also use Polars in the full pipeline, although it raises some question if you want to put it in production.
+
+``` python
+def run_rag_pipeline(activity: str) -> dict:
+    """
+    Run the full RAG pipeline for a single activity label.
+
+    Parameters
+    ----------
+    activity : str
+        Free-text economic activity label to be coded.
+
+    Returns
+    -------
+    dict with keys:
+        - nace_code (str | None) : predicted NACE code
+        - codable (bool)        : True if the label could be coded
+        - confidence (float)    : confidence score (0–1)
+        - retrieved_codes (list): candidates returned by the retriever
+    """
+    # --- Step 1: Embedding ---
+    emb_response = client_llmlab.embeddings.create(model=EMB_MODEL_NAME, input=activity)
+    embedding = emb_response.data[0].embedding
+
+    # --- Step 2: Retrieval ---
+    points = client_qdrant.query_points(
+        collection_name=COLLECTION_NAME,
+        query=embedding,
+        limit=RETRIEVER_LIMIT,
+    )
+
+    points_df = (
+        pl.DataFrame(points.model_dump(), schema_overrides={"points": pl.Struct})
+        .unnest()
+        .unnest()
+        .select(["id", "score", "code", "text"])
+    )
+
+    # --- Step 3: Prompt construction ---
+    user_prompt = USER_PROMPT_TEMPLATE.format(
+        activity=activity,
+        proposed_nace_descriptions="## " + "\n\n## ".join(points_df["text"]),
+        proposed_nace_codes=", ".join(points_df["code"]),
+    )
+
+    # --- Step 4: LLM inference ---
+    gen_response = client_llmlab.chat.completions.create(
+        model=GEN_MODEL_NAME,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=TEMPERATURE,
+        response_format={"type": "json_object"},
+    )
+
+    result = json.loads(gen_response.choices[0].message.content)
+    # Keep retrieved candidates for retriever evaluation
+    result["retrieved_codes"] = points_df["code"]
+
+    return result
+
+
+annotations_df = pl.DataFrame(annotations)
+
+results_df = annotations_df.with_columns(
+    pl.col("label")
+    .map_elements(
+        lambda a: run_rag_pipeline(a),
+        return_dtype=pl.Struct(
+            {
+                "nace_code": pl.Utf8,
+                "codable": pl.Boolean,
+                "confidence": pl.Float64,
+                "retrieved_codes": pl.List(pl.Utf8),
+            }
+        ),
+    )
+    .alias("pred")
+).unnest()
+
+# Metrics
+results_df = (
+    results_df.with_columns(
+        retriever_hit=pl.col("code").is_in(pl.col("retrieved_codes")),
+        pipeline_correct=pl.col("code") == pl.col("nace_code"),
+    )
+    .with_columns(
+        pipeline_correct=pl.col("pipeline_correct").fill_null(
+            False  # if no prediction - pipeline is false
+        )
+    )
+    .with_columns(
+        llm_correct_given_retriever=pl.when(pl.col("retriever_hit"))
+        .then(pl.col("pipeline_correct"))
+        .otherwise(None),
+    )
+)
+
+# Q1
+results_df["retriever_hit"].value_counts()
+retriever_accuracy = results_df["retriever_hit"].mean()
+
+# Q2
+results_df["llm_correct_given_retriever"].value_counts()
+results_df.filter(pl.col("retriever_hit"))["llm_correct_given_retriever"].value_counts()
+llm_accuracy = results_df.filter(pl.col("retriever_hit"))[
+    "llm_correct_given_retriever"
+].mean()
+
+# Q3
+results_df["pipeline_correct"].value_counts()
+pipeline_accuracy = results_df["pipeline_correct"].mean()
+pipeline_accuracy
+llm_accuracy * retriever_accuracy
+
+# Q4
+n_total = len(results_df)
+
+n_retriever_miss = (
+    results_df["retriever_hit"]
+    .value_counts()
+    .filter(~pl.col("retriever_hit"))["count"][0]
+)
+n_llm_miss = (
+    results_df["llm_correct_given_retriever"]
+    .value_counts()
+    .filter(~pl.col("llm_correct_given_retriever"))["count"][0]
+)
+
+n_correct = (
+    results_df["pipeline_correct"]
+    .value_counts()
+    .filter(pl.col("pipeline_correct"))["count"][0]
+)
+
+```
+
+
+:::
+
+:::
+
+# What you learned — and how to go further
+
+## Key concepts of the RAG approach
+
+Across the two RAG tutorials you built a complete pipeline from raw text to a coded NACE label:
+
+- **Vector database (tutorial 1)**: NACE definitions were cleaned, embedded with a dense model, and stored in Qdrant as `PointStruct` objects with deterministic UUIDs. The choice of embedding model and the richness of the stored text (includes, excludes) directly shape retrieval quality.
+- **Semantic retrieval**: at inference time, the activity label is embedded with the *same* model and the `k` nearest neighbours are fetched from Qdrant. Retriever@k is the hard ceiling of the pipeline — if the correct code is not retrieved, the LLM cannot recover it.
+- **Structured generation**: the retrieved candidates are injected into a prompt and the LLM is asked to pick one, returning a typed `NaceClassificationResult` object via `beta.chat.completions.parse()`. Pydantic constraints catch malformed responses at parse time.
+- **Decomposed evaluation**: pipeline accuracy factors as Retriever@k × LLM accuracy (conditional). This decomposition pinpoints *where* errors occur and guides improvements.
+- **Confidence-based triage**: the LLM confidence score enables a precision/coverage trade-off — high-confidence predictions are sent to automatic coding, low-confidence ones to human review.
+
+## What to try next
+
+### Improve the retriever
+- **Larger or domain-adapted embedding model**: a model fine-tuned on economic activity descriptions would produce better semantic clusters than a general-purpose one.
+- **Hybrid search**: combine dense (embedding) and sparse (BM25 keyword) search. Qdrant supports this natively. Useful when the activity label contains exact NACE terminology.
+- **Increase k and rerank**: retrieve more candidates (e.g. `k=10`) and add a lightweight cross-encoder reranker to re-score them before passing the top-5 to the LLM. Rerankers are better at fine-grained relevance but too slow to run over the full collection.
+
+### Improve the generator
+- **Few-shot examples in the prompt**: add 2–3 labelled examples (activity → code) to the user prompt. This helps the LLM calibrate on the expected granularity of the nomenclature.
+- **Chain-of-thought**: ask the LLM to reason step-by-step before outputting the JSON. Adds latency but can improve accuracy on ambiguous labels.
+- **More capable model**: swap `GEN_MODEL_NAME` for a larger or instruction-tuned model — generation errors are usually the cheaper component to improve.
+
+### Better evaluation
+- **Hierarchical accuracy**: count a prediction as partially correct if it matches the true code at the section or division level (e.g. `47` matches `47.11`). This is more informative than strict exact-match for a 4-level hierarchy.
+- **Larger evaluation set**: `SAMPLE_SIZE = 100` gives noisy estimates. Run on the full dataset or use bootstrap confidence intervals.
+- **Error analysis by sector**: accuracy may vary widely across NACE sections. Identifying weak sectors guides targeted improvements.
+
+### Production considerations
+- **Caching embeddings**: if the same activity labels recur (e.g. standard job titles), cache their embeddings to avoid redundant API calls.
+- **Async batching**: parallelise the embedding + generation calls with `asyncio` to reduce wall-clock time on large batches.
+- **Human-in-the-loop**: route low-confidence predictions (`confidence < t`) to a review queue rather than discarding them — combine automatic coding with human validation to maximise both precision and coverage.
