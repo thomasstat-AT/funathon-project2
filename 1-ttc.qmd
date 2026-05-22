@@ -359,6 +359,10 @@ print("Vocabulary size:", tokenizer.vocab_size)
 # Look at an example of tokenization
 print("Raw text", X_train[0])
 print(
+    "Tokens id:",
+    tokenizer.tokenize(X_train[0]).input_ids.squeeze(0)
+)
+print(
     "Tokens:",
     tokenizer.tokenizer.convert_ids_to_tokens(
         tokenizer.tokenize(X_train[0]).input_ids.squeeze(0)
