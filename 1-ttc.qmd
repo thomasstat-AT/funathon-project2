@@ -217,7 +217,9 @@ X_test, y_test = test_df["label"].to_numpy(), test_df["code"].to_numpy()
 print(f"Train: {len(train_df)} | Val: {len(val_df)} | Test: {len(test_df)}")
 ```
 
-*Use `LabelEncoder` from `sklearn.preprocessing` (see [here](https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.LabelEncoder.html) for the documentation). Call `.fit()` on all codes, then `.transform()` on each split. Extract numpy arrays with `.to_numpy()`.*
+## Question 2 — Encode the labels
+
+Use `LabelEncoder` from `sklearn.preprocessing` (see [here](https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.LabelEncoder.html) for the documentation). Call `.fit()` on all codes, then `.transform()` on each split. Extract numpy arrays with `.to_numpy()`.
 
 ::: {.callout-note appearance="simple" collapse="true"}
 ## Why do we use LabelEncoder ?
