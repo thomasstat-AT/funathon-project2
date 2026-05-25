@@ -603,21 +603,13 @@ ttc.pytorch_model.eval()
 Once the model is trained, we can use it to predict NACE codes for new text descriptions.
 Beyond a simple prediction, we also want to understand why a given NACE code was predicted — specifically, which words in the input text contributed the most to the decision.
 
-You can refer to this[tutorial](https://inseefrlab.github.io/torchTextClassifiers/tutorials/explainability.html) on explainability for more details.
+You can refer to this [tutorial](https://inseefrlab.github.io/torchTextClassifiers/tutorials/explainability.html) on explainability for more details.
 
-To understand which tokens drove a prediction, we use **captum's `LayerIntegratedGradients`**,
-applied to the model's embedding matrix. This method computes the gradient of the output
-with respect to each input token embedding, integrated along a path from a baseline — attributing
-a score to each token that reflects its contribution to the predicted class.
-
-You can see the documentation for `LayerIntegratedGradients` [here](https://captum.ai/api/layer.html#layer-integrated-gradients)
+To understand which words influenced a prediction, we use a technique called **integrated gradients** (via Captum's `LayerIntegratedGradients`). It assigns a score to each word in the input: a high score means that word pushed the model toward the predicted class.
 
 ::: {.callout-important}
 ## On the interpretation of integrated gradients
-`LayerIntegratedGradients` provides a more faithful attribution than attention weights: it measures
-how much each token embedding actually influenced the model's output, not merely which tokens the
-model attended to. That said, attributions depend on the choice of baseline and should still be
-treated as an exploratory tool rather than a definitive causal explanation.
+These scores are a useful guide, not a definitive explanation. Treat them as a way to explore the model's behavior, not as proof of causality.
 :::
 
 ::: {.callout-tip collapse="false" icon=false}
@@ -625,22 +617,23 @@ treated as an exploratory tool rather than a definitive causal explanation.
 
 ## Question 1 — Generate top-5 predictions with confidence scores
 
-Sample a few texts from the `X_test` array into a variable called`example_texts`.
+Sample a few texts from the `X_test` array into a variable called `example_texts`.
 Then call `ttc.predict(np.array(example_texts), top_k=5, explain_with_captum=True)` and print the main fields of the resulting dictionary.
 The result is a dictionary with keys `prediction`, `confidence` and `captum_attributions` among others.
 
 <details>
 <summary>Clue here</summary>
-The result is a dict with keys `prediction`, `confidence` and `captum_attributions` among others.
+To sample random texts, you can use for instance `random.sample(range(len(X_test)), 3)` to pick 3 random indices, then use them to index into `X_test`. Do not forget to import the `random` package.
 </details>
 
 ```{python}
 #| label: predict-examples
-#| code-fold: true
+#| #| code-fold: true
 #| code-summary: Click to see the answer
 #| code-overflow: scroll
 #| output: true
 import random
+
 random_indices = random.sample(range(len(X_test)), 3)
 example_texts = X_test[random_indices]
 example_true_codes = y_test[random_indices]
