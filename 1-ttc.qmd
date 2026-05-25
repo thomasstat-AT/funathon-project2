@@ -69,21 +69,24 @@ In this notebook, we use MLflow in two ways:
 - During training (Exercise 4), metrics are logged to a remote MLflow server so you can monitor progress.
 - After training (Exercise 4, Question 3), we **download a pretrained model** that was already trained on the full dataset and stored in MLflow, so you do not have to wait hours for training to complete.
 
-**2. Set up your MLflow credentials**
+**3. Start an MLflow service**
+
+Launch an MLflow service from the SSP Cloud service catalogue. To do so, go on SSPCloud, click on `My Services`, then on `New Service`, then on `Automation`, then on `MLflow`, then on `Launch`. Once the service starts, its public URL appears in the service details. It typically looks like `https://user-<username>-mlflow.user.lab.sspcloud.fr`.
+
+
+**4. Set up your MLflow credentials**
 
 [MLflow](https://mlflow.org/) is an open-source platform for tracking machine learning experiments. Every time a model is trained, MLflow records the hyperparameters used, the metrics obtained (loss, accuracy…), and the model artefacts (weights, tokenizer, configuration). This makes it easy to compare runs, reproduce results, and share trained models with others. This funathon project uses MLflow in multiple ways.
 
-Because the MLflow server is a remote, access-controlled service, you need to provide two pieces of information:
+Because the MLflow server is a remote, access-controlled service, you need to provide three pieces of information:
 
-- `MLFLOW_TRACKING_URI`: the URL of the MLflow server (ex: ``https://projet-funathon-mlflow.user.lab.sspcloud.fr/``).
-- `MLFLOW_TRACKING_USERNAME`
-- `MLFLOW_TRACKING_PASSWORD`
+- `MLFLOW_TRACKING_URI`: the URL of the MLflow server (ex: `https://user-<username>-mlflow.user.lab.sspcloud.fr`).
+- `MLFLOW_TRACKING_USERNAME`;
+- `MLFLOW_TRACKING_PASSWORD`.
 
-**They are given on the information panel that opens when you launch your MLflow service.**
+**They are given on the information panel that opens when you launch your MLflow service.** 
 
-These values must **not** be hardcoded in the notebook — storing credentials in source code is a security risk.
-
-**Instead, create a file named `.env` at the root of the project and fill it in as follows:**
+These values must **not** be hardcoded in the notebook — storing credentials in source code is a security risk (anyone with these credentials could access your MLflow). **Instead, create a file named `.env` at the root of the project and fill it in as follows:**
 
 ```
 MLFLOW_TRACKING_URI=<add the MLflow server URL>
@@ -91,7 +94,7 @@ MLFLOW_TRACKING_USERNAME=<add your username>
 MLFLOW_TRACKING_PASSWORD=<add your password>
 ```
 
-The notebook loads this file automatically at startup with `load_dotenv()`, making the values available as environment variables without ever appearing in the code.
+The notebook loads this file automatically at startup with `load_dotenv()`, making the values available as environment variables without ever appearing in the code. Be careful: do not add spaces around the `=` sign, and do not put single quotes or double quotes. Example: `MLFLOW_TRACKING_USERNAME=user-donaldduck`.
 
 ---
 
@@ -105,7 +108,7 @@ Each row contains a short text description (`label`) and the corresponding NACE 
 
 ## Question 1 — Import libraries and load environment variables
 
-Import `os` the `load_dotenv` from the `dotenv` package. Then execute `load_dotenv(override=True)` to load your `.env` file.
+Import the package `mlflow` and the `load_dotenv` from the `dotenv` package. Then execute `load_dotenv(override=True)` to load your `.env` file.
 ```{python}
 #| label: setup
 #| code-fold: true
@@ -149,7 +152,7 @@ print(f"Total rows: {len(df)}")
 
 ## Question 3 — Count unique NACE codes
 
-How many unique NACE codes are present in the dataset? This number will define the number of output classes the model must predict.
+How many unique NACE codes are present in the dataset? Store this number in a variable called `n_classes`. This number will define the number of output classes the model must predict.
 
 <details>
 <summary>Clue here</summary>
@@ -186,9 +189,9 @@ final evaluation is truly unbiased.
 :::
 
 ::: {.callout-tip collapse="false" icon=false}
-## `<i class="bi bi-book"></i>`{=html} Exercice 2: Split the dataset into train / validation / test sets
+## `<i class="bi bi-book"></i>`{=html} Exercice 2: Prepare the data
 
-## Question 1 — Split the dataset
+## Question 1 — Split the dataset into train / validation / test sets
 
 Use `train_test_split` from `sklearn.model_selection` to split the dataset into train, validation, and test sets (70% / 15% / 15%). Do not forget to choose a `random_state`.
 
@@ -214,22 +217,33 @@ X_test, y_test = test_df["label"].to_numpy(), test_df["code"].to_numpy()
 print(f"Train: {len(train_df)} | Val: {len(val_df)} | Test: {len(test_df)}")
 ```
 
-*Use `LabelEncoder` from `sklearn.preprocessing` (see [here](https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.LabelEncoder.html) for the documentation). Call `.fit()` on all codes, then `.transform()` on each split. Extract numpy arrays with `.to_numpy()`.*
+## Question 2 — Encode the labels
+
+The `code` column contains strings like `"47.11A"` (codes from the NACE classification). Neural networks do not understand strings and require integer targets (1, 2, 3...), so we need to map each unique NACE code to an integer index. To do that, you will use an encoder.
+
+Use `LabelEncoder` from `sklearn.preprocessing` (see [here](https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.LabelEncoder.html) for the documentation). Call `.fit()` on all codes, then `.transform()` on each split. Extract numpy arrays with `.to_numpy()`.
 
 ::: {.callout-note appearance="simple" collapse="true"}
 ## Why do we use LabelEncoder ?
 We use `LabelEncoder` to map the categorical target `y` to integers `0, 1, …, n_classes - 1`, the format expected by scikit-learn classifiers. It should not be used on input features, however: for those, `OrdinalEncoder` or `OneHotEncoder` is preferred, because `LabelEncoder` is designed for a 1D target and does not handle unseen categories at inference time.
-
 :::
-
-The `code` column contains strings like `"47.11A"`. Neural networks do not understand strings and require integer targets (1, 2, 3...), so we need to map each unique NACE code to an integer index. 
-
-``torchTextClassifiers`` provides the ``ValueEncoder`` object to deal with textual labels. You simply need to fit a [``LabelEncoder`` object](https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.LabelEncoder.html) from the scikit-learn library to then build a ``ValueEncoder``.
 
 ::: {.callout-warning collapse="false"}
 ## Make sure all labels appear in the training set!
 Fit the `LabelEncoder` on the **training set only** — fitting on validation or test data would be data leakage. However, this means any NACE code absent from the training set will cause an error at inference time. **Make sure every code appears at least once in training before splitting.**
 :::
+
+```{python}
+#| label: split-data
+#| code-fold: true
+#| code-summary: Click to see the answer
+#| code-overflow: scroll
+#| output: true
+from sklearn.preprocessing import LabelEncoder
+
+encoder = LabelEncoder()
+encoder.fit(train_df['code'].to_numpy())
+```
 
 ```{python}
 #| label: check-labels
@@ -247,6 +261,11 @@ else:
     print(f"OK — all {len(all_codes)} codes appear in the training set.")
 ```
 
+## Question 3 — Prepare the labels to use them wityh `ttc`
+
+``torchTextClassifiers`` provides the ``ValueEncoder`` object to deal with textual labels. You simply need to feed the fitted `LabelEncoder` to the ``ValueEncoder``.
+
+Create a `ValueEncoder` ..... TO BE COMLETED BY MEILAME
 
 ```{python}
 #| label: split-data
@@ -254,16 +273,10 @@ else:
 #| code-summary: Click to see the answer
 #| code-overflow: scroll
 #| output: true
-from sklearn.preprocessing import LabelEncoder
 from torchTextClassifiers.value_encoder import ValueEncoder
-
-encoder = LabelEncoder()
-encoder.fit(train_df['code'].to_numpy())
 
 value_encoder = ValueEncoder(label_encoder=encoder)
 ```
-
-
 
 :::
 
@@ -271,7 +284,7 @@ value_encoder = ValueEncoder(label_encoder=encoder)
 
 ## Why tokenization?
 
-Neural networks can only work with numbers because they have no notion of letters or words. A **tokenizer** is the component that bridges this gap: it converts raw text into a sequence of integers that the model can process.
+Neural networks can only work with numbers because they have no notion of letters or words. As a a consequence, models cannot use directly the string "I sell croissants and pains au chocolat" to predict a NACE code, it must be transformed into something the model can use. A **tokenizer** is the component that bridges this gap: it converts raw text into a sequence of integers that the model can process.
 
 The process has three steps:
 
@@ -281,7 +294,7 @@ The process has three steps:
 
 The diagram below illustrates this pipeline on a short example:
 
-```mermaid
+```{mermaid}
 flowchart LR
     A["\"I sell croissants\""] -->|"split into tokens"| B["[\"i\", \"sell\", \"croi\", \"##ssants\"]"]
     B -->|"look up in vocabulary"| C["[45, 112, 87, 203]"]
@@ -314,16 +327,19 @@ Because the vocabulary is learned from your data, it naturally adapts to domain-
 
 ## Question 1 — Train the tokenizer and inspect a sample
 
-Train a `WordPieceTokenizer` from scratch on the training labels with `vocab_size=5000`
-and `output_dim=10`. Inspect a sample tokenization to understand how the text is split.
+You are going to use a `WordPieceTokenizer` from the `torchTextClassifiers` package (see the [documentation](https://inseefrlab.github.io/torchTextClassifiers/api/tokenizers.html)). Train a `WordPieceTokenizer` from scratch on the training labels with `vocab_size=5000`
+and `output_dim=10`. Use the fitted tokenizer to tokenize one observations (with the `tokenize` method), and inspect the result to understand how the text is split.
 
-*Instantiate `WordPieceTokenizer(vocab_size=5000, output_dim=10)` and call `.train(X_train)`. Use `.tokenize()` and `.convert_ids_to_tokens()` to inspect a sample.*
+<details>
+<summary>Clue here</summary>
+Instantiate `WordPieceTokenizer(vocab_size=5000, output_dim=10)` and call `.train(X_train)`. Use `.tokenize()` and `.convert_ids_to_tokens()` to inspect a sample.
+</details>
 
 ::: {.callout-warning collapse="true"}
 ## Tokenizer data leakage
-Always train the tokenizer on `X_train` only — never on the validation or test set.
+Always train the tokenizer on `X_train` only — never on the validation or test sets.
 Using the full dataset would mean the tokenizer has seen vocabulary from examples the model
-is supposed to predict blind.
+is supposed to predict.
 :::
 
 ```{python}
@@ -338,10 +354,20 @@ tokenizer = WordPieceTokenizer(vocab_size=5000, output_dim=10)
 tokenizer.train(X_train)
 
 print("Output tensor size:", tokenizer.tokenize(X_train[0]).input_ids.shape)
-print("Tokens:", tokenizer.tokenizer.convert_ids_to_tokens(
-    tokenizer.tokenize(X_train[0]).input_ids.squeeze(0)
-))
 print("Vocabulary size:", tokenizer.vocab_size)
+
+# Look at an example of tokenization
+print("Raw text", X_train[0])
+print(
+    "Tokens id:",
+    tokenizer.tokenize(X_train[0]).input_ids.squeeze(0)
+)
+print(
+    "Tokens:",
+    tokenizer.tokenizer.convert_ids_to_tokens(
+        tokenizer.tokenize(X_train[0]).input_ids.squeeze(0)
+    )
+)
 ```
 
 :::
@@ -363,34 +389,33 @@ These are configured through `ModelConfig` and assembled automatically by `torch
 
 # Training
 
-Training a neural network means finding the weights that minimise a **loss function** — a measure
-of how wrong the model's predictions are. At each step, the model makes predictions on a
-**mini-batch** of examples, computes the loss, and updates the weights in the direction that
-reduces it (via **gradient descent**).
+Training a neural network means finding the weights that minimise a **loss function** — a measure of how wrong the model's predictions are. At each step, the model makes predictions on a **mini-batch** of examples, computes the loss, and updates the weights in the direction that reduces it (via **gradient descent**).
 
 Key training hyperparameters:
 
 - `num_epochs`: how many times the model sees the full training set.
 - `batch_size`: how many examples are processed at once before a weight update.
 - `lr` (learning rate): how large each weight update step is.
-- `patience_early_stopping`: stop training if the validation loss has not improved for this
-  many epochs, to avoid overfitting.
+- `patience_early_stopping`: stop training if the validation loss has not improved for this many epochs, to avoid overfitting.
 
 ::: {.callout-tip collapse="false" icon=false}
 ## `<i class="bi bi-book"></i>`{=html} Exercice 4: Train the model
 
-`torchTextClassifiers` provides a high-level wrapper that combines the value encoder, tokenizer, model
-components, and training loop.
+`torchTextClassifiers` provides a high-level wrapper that combines the value encoder, tokenizer, model components, and training loop. You will do two things: create a model, and then train the model. It is important to distinguish these two steps clearly. To do so, `torchTextClassifiers` offers two tools: `ModelConfig` defines the model and `TrainingConfig` defines the training process.
 
-## Question 1 — Instantiate the classifier
+## Question 1 — Create the classifier
 
-Instantiate the classifier from a `ModelConfig` and the trained tokenizer.
+Using the `torchTextClassifiers` package, create a `ModelConfig`. Then create a `torchTextClassifiers` classifier that uses this `ModelConfig` and the trained tokenizer. Set the dimension of embeddings to 96. You will need to read carefully the [`torchTextClassifiers` documentation](https://inseefrlab.github.io/torchTextClassifiers/api/index.html).
 
-*Build a  `ModelConfig` with `embedding_dim` and `num_classes`. Pass both to `torchTextClassifiers(tokenizer=..., model_config=..., value_encoder=...)`.*
+<details>
+<summary>Clue here</summary>
+Build a  `ModelConfig` with `embedding_dim` and `num_classes`. Pass both to `torchTextClassifiers(tokenizer=..., model_config=..., value_encoder=...)`.
+</details>
+
 
 ::: {.callout-note appearance="simple" collapse="true"}
 ## Key parameter
-- `embedding_dim=96`: size of the dense vector representing each token. Larger values capture more information but are slower to train.
+The hyperparameter `embedding_dim` controls the size of the dense vector representing each token. Larger values capture more information but are slower to train.
 :::
 ```{python}
 #| label: model-config
@@ -413,25 +438,53 @@ ttc = torchTextClassifiers(
 )
 ```
 
-## Question 2 — Train on a small subsample
+## Question 2 — Prepare training
 
-Define a `TrainingConfig` and train on a small subsample so it completes quickly.
+Define a `TrainingConfig` and train on a small subsample so it completes quickly. __Use only 1 epoch for fast training__. A model trained on the full dataset for many epochs is loaded from MLflow in the next step. Have a careful look at the hyperparameters. Do you understand what they do? You can see the `TrainingConfig` documentation [here](https://inseefrlab.github.io/torchTextClassifiers/api/configs.html#trainingconfig).
 
-*Create a `TrainingConfig(lr=..., batch_size=..., num_epochs=...)` and call `ttc.train(X_train=..., y_train=..., X_val=..., y_val=..., training_config=..., verbose=True)`.*
-
-You can see the `TrainingConfig` documentation [here](https://inseefrlab.github.io/torchTextClassifiers/api/configs.html#trainingconfig)
 
 ::: {.callout-note appearance="simple" collapse="true"}
-## Note
-We only perform a quick training (1 epoch) just to verify the pipeline runs end-to-end.
-A model trained on the full dataset for many epochs is loaded from MLflow in the next step.
+## Play with hyperparameters
+Of course, you can play with hyperparameters if you want: add more epochs, change the learning rate and the batch size... But __remember that you are training the model using CPUs, so avoid big models that will take a lot of time and resources to train__.
+:::
 
+
+<details>
+<summary>Clue here</summary>
+Create a `TrainingConfig(lr=..., batch_size=..., num_epochs=...)`.
+</details>
+
+::: {.callout-note appearance="simple" collapse="true"}
+## Want to learn what hyperparameters do? 
 Key hyperparameters used here:
 
 - `lr=5e-4`: a standard starting learning rate for Adam-based optimizers.
 - `batch_size=128`: how many examples are processed before each weight update — larger batches are faster but require more memory.
 - `num_epochs=1`: one pass over the data, kept short for this demo.
 :::
+
+```{python}
+#| label: train-small
+#| code-fold: true
+#| code-summary: Click to see the answer
+#| code-overflow: scroll
+#| output: true
+training_config = TrainingConfig(
+    num_epochs=1,
+    batch_size=128,
+    lr=5*1e-4,
+    patience_early_stopping=5,
+)
+```
+
+## Question 3 — Train on a small subsample
+
+Train the model using the `TrainingConfig` defined before. Look carefully at the arguments of the `train` method. You can try to use MLflow or automatic model logging, but this is optional (see below).
+
+<details>
+<summary>Clue here</summary>
+Call `ttc.train(X_train=..., y_train=..., X_val=..., y_val=..., training_config=..., verbose=True)`.
+</details>
 
 ::: {.callout-tip appearance="simple" collapse="true"}
 ## Tip — Logging training with MLflow
@@ -460,13 +513,6 @@ with mlflow.start_run():
 
 mlflow.set_experiment("funathon-2026-project2")
 mlflow.pytorch.autolog()
-
-training_config = TrainingConfig(
-    num_epochs=1,
-    batch_size=128,
-    lr=5*1e-4,
-    patience_early_stopping=5,
-)
 
 with mlflow.start_run() as run:
     # This should take approximately 1-2mn
@@ -507,7 +553,7 @@ print(ttc_loaded)
 
 ## Question 3 — Load the pretrained model from MLflow
 
-We provide a **pretrained model** trained on the full dataset.
+We provide a **pretrained model** trained on the full dataset with many epochs.
 Load it as such:
 
 ```{python}
@@ -549,7 +595,7 @@ treated as an exploratory tool rather than a definitive causal explanation.
 ## Question 1 — Generate top-5 predictions with confidence scores
 
 Sample some text from the `X_text` array in a variable called `example_texts`.
-Call `ttc.predict(np.array(example_texts), top_k=5, explain_with_captum=True)`. The result is a dict with keys `prediction`, `confidence` and `captum_attributions` among others.
+Call `ttc.predict(np.array(example_texts), top_k=5, explain_with_captum=True)`. The result is a dictionary with keys `prediction`, `confidence` and `captum_attributions` among others. Inspect the content of the dictionary. Do you understand what it contains?
 
 ```{python}
 #| label: predict-examples
