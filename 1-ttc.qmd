@@ -14,7 +14,7 @@ execute:
 
 ## The problem: classifying free-text activity descriptions
 
-Given a short text description of a business activity — such as *"I sell croissants and pains au chocolat"* — the goal is to automatically assign the correct **NACE 2.1 activity code** from hundreds of possible categories. This is a **supervised multiclass classification** problem.
+Given a short text description of a business activity — such as *"I sell croissants and pains au chocolat"* — the objective is to find automatically the correct **NACE 2.1 activity code** from hundreds of possible codes. This is a **supervised multiclass classification** problem.
 
 ## Supervised learning or RAG?
 
@@ -193,11 +193,12 @@ final evaluation is truly unbiased.
 
 ## Question 1 — Split the dataset into train / validation / test sets
 
-Use `train_test_split` from `sklearn.model_selection` to split the dataset into train, validation, and test sets (70% / 15% / 15%). Do not forget to choose a `random_state`.
+Use `train_test_split` from `sklearn.model_selection` to split the dataset into train, validation, and test sets (70% / 15% / 15%). Do not forget to choose a `random_state`. Separate the target `y` from the features `X`, and convert them to `numpy` arrays. You should obtain objects `X_train`, `y_train`, and so on.
 
 <details>
 <summary>Clue here</summary>
-`train_test_split` splits a dataset in two — call it twice to get three subsets.
+- `train_test_split` splits a dataset in two — call it twice to get three subsets.
+- You may use the `to_numpy` method to convert to `numpy` arrays.
 </details>
 
 ```{python}
