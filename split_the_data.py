@@ -87,15 +87,23 @@ print(
 
 from torchTextClassifiers import ModelConfig, TrainingConfig, torchTextClassifiers
 
-# %%
+
 model_config = ModelConfig(embedding_dim=96, num_classes=n_classes,)
-ttc = torchTextClassifiers(tokenizer, model_config, value_encoder,)
+
+ttc = torchTextClassifiers(
+    tokenizer=tokenizer,
+    model_config=model_config,
+    value_encoder=value_encoder,
+)
+
 
 training_config = TrainingConfig(lr=5e-4, batch_size=128, num_epochs=1, patience_early_stopping=5,)
+
 # %%
 mlflow.set_experiment("funathon-2026-project2")
 mlflow.pytorch.autolog()
 
+# %%
 with mlflow.start_run() as run:
     # This should take approximately 1-2mn
     ttc.train(
@@ -113,4 +121,16 @@ with mlflow.start_run() as run:
     )
 
 # %%
-print(type(y_train))
+#| label: load-from-run
+#| code-overflow: scroll
+#| output: true
+local_dir = mlflow.artifacts.download_artifacts(
+    f"runs:/{run.info.run_id}/model_artifacts"
+)
+
+# Rebuild the torchTextClassifiers object from the downloaded files
+ttc_loaded = torchTextClassifiers.load(local_dir)
+
+# %%
+example_texts = X_test[1:10]
+preds = ttc_loaded.predict(np.array(example_texts), top_k=5,explain_with_captum=True)
